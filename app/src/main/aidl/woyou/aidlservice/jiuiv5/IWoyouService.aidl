@@ -1,11 +1,13 @@
 package woyou.aidlservice.jiuiv5;
 
 import woyou.aidlservice.jiuiv5.ICallback;
+import woyou.aidlservice.jiuiv5.ITax;
 import android.graphics.Bitmap;
+import com.sunmi.trans.TransBean;
 
 interface IWoyouService {
 
-    void updateFirmware();
+    boolean postPrintData(String packageName, in byte[] data, int offset, int length);
 
     int getFirmwareStatus();
 
@@ -21,7 +23,7 @@ interface IWoyouService {
 
     String getPrinterModal();
 
-    int getPrintedLength();
+    void getPrintedLength(in ICallback callback);
 
     void lineWrap(int n, in ICallback callback);
 
@@ -47,31 +49,49 @@ interface IWoyouService {
 
     void printOriginalText(String text, in ICallback callback);
 
+    void commitPrint(in TransBean[] transbean, in ICallback callback);
+
     void commitPrinterBuffer();
 
-    void cutPaper(in ICallback callback);
+    void enterPrinterBuffer(in boolean clean);
 
-    int getCutPaperTimes();
+    void exitPrinterBuffer(in boolean commit);
 
-    void openDrawer(in ICallback callback);
+    void tax(in byte[] data, in ITax callback);
 
-    int getOpenDrawerTimes();
-
-    void enterPrinterBuffer(boolean isClean);
-
-    void exitPrinterBuffer(boolean isCommit);
-
-    void tax(in byte[] data, in ICallback callback);
-
-    String getPrinterFactory();
+    void getPrinterFactory(in ICallback callback);
 
     void clearBuffer();
 
     void commitPrinterBufferWithCallback(in ICallback callback);
 
-    void exitPrinterBufferWithCallback(boolean isCommit, in ICallback callback);
+    void exitPrinterBufferWithCallback(in boolean commit, in ICallback callback);
 
     void printColumnsString(in String[] colsTextArr, in int[] colsWidthArr, in int[] colsAlign, in ICallback callback);
 
     int updatePrinterState();
+
+    void printBitmapCustom(in Bitmap bitmap, in int type, in ICallback callback);
+
+    int getForcedDouble();
+
+    boolean isForcedAntiWhite();
+
+    boolean isForcedBold();
+
+    boolean isForcedUnderline();
+
+    int getForcedRowHeight();
+
+    int getFontName();
+
+    int getPrinterDensity();
+
+    void print2DCode(String data, int symbology, int modulesize, int errorlevel, in ICallback callback);
+
+    int getPrinterPaper();
+
+    void autoOutPaper(in ICallback callback);
+
+    void setPrinterStyle(int key, int value);
 }
