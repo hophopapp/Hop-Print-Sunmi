@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hop Print</string>
+    <string name="hint_enter_text">Enter text to print</string>
+    <string name="btn_print">Print</string>
+    <string name="status_printer_connected">Printer connected</string>
+    <string name="status_printer_disconnected">Printer not connected</string>
+    <string name="status_printing">Printing…</string>
+    <string name="status_print_success">Printed successfully</string>
+    <string name="status_print_failed">Print failed</string>
+    <string name="error_empty_input">Please enter something to print</string>
+</resources>
