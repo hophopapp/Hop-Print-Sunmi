@@ -71,6 +71,8 @@ class SunmiPrinterHelper(private val context: Context) {
                 override fun onRaiseException(code: Int, msg: String?) {
                     onResult(false, msg ?: "Print error")
                 }
+
+                override fun onPrintResult(code: Int, msg: String?) {}
             })
         } catch (e: RemoteException) {
             onResult(false, e.message ?: "Remote exception")

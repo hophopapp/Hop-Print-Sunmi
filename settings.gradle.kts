@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "HopPrint"
-include ':app'
+include(":app")

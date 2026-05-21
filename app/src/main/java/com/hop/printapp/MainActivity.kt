@@ -6,6 +6,16 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.hop.printapp.databinding.ActivityMainBinding
 
+/**
+ * Manual print test screen.  Accessible from the Orders screen overflow menu.
+ *
+ * Print entry point: printReceipt(text: String)
+ * Input format: plain String (supports \n line breaks)
+ * Mechanism: SunmiPrinterHelper.printText() via AIDL — fully programmatic, no user gesture needed.
+ *
+ * The shared print logic used by both this screen and the socket auto-print lives in
+ * OrderFormatter (formatting) + SunmiPrinterHelper.printText() (output).
+ */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding

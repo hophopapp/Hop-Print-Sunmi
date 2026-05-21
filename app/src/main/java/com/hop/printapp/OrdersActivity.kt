@@ -1,0 +1,295 @@
+package com.hop.printapp
+
+import android.content.Intent
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.hop.printapp.databinding.ActivityOrdersBinding
+import kotlinx.coroutines.launch
+
+class OrdersActivity : AppCompatActivity() {
+
+    private lateinit var binding: ActivityOrdersBinding
+    private lateinit var session: SessionManager
+    private lateinit var printer: SunmiPrinterHelper
+    private lateinit var adapter: OrderAdapter
+
+    private var socketClient: HopSocketClient? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        session = SessionManager(this)
+
+        if (!session.isLoggedIn) {
+            redirectToLogin()
+            return
+        }
+
+        binding = ActivityOrdersBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        setSupportActionBar(binding.toolbar)
+        supportActionBar?.title = getString(R.string.title_orders)
+
+        printer = SunmiPrinterHelper(this)
+        adapter = OrderAdapter(mutableListOf()) { order -> showStatusDialog(order) }
+
+        binding.recyclerView.layoutManager = LinearLayoutManager(this)
+        binding.recyclerView.adapter = adapter
+
+        binding.swipeRefresh.setOnRefreshListener { loadOrders() }
+
+        loadOrders()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        printer.bind(
+            onConnected = { mainHandler.post { updatePrinterStatus(true) } },
+            onDisconnected = { mainHandler.post { updatePrinterStatus(false) } }
+        )
+        connectSocket()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        printer.unbind()
+        socketClient?.disconnect()
+        socketClient = null
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_orders, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
+        R.id.action_manual_print -> {
+            startActivity(Intent(this, MainActivity::class.java))
+            true
+        }
+        R.id.action_logout -> {
+            logout()
+            true
+        }
+        else -> super.onOptionsItemSelected(item)
+    }
+
+    // ── Orders loading ───────────────────────────────────────────────────────
+
+    private fun loadOrders() {
+        binding.swipeRefresh.isRefreshing = true
+        binding.emptyText.visibility = View.GONE
+
+        lifecycleScope.launch {
+            val token = session.accessToken ?: run { redirectToLogin(); return@launch }
+            val cafeId = session.cafeId ?: ""
+
+            when (val result = HopApiClient.getOrders(token, cafeId)) {
+                is HopApiClient.ApiResult.Success -> {
+                    binding.swipeRefresh.isRefreshing = false
+                    val orders = result.data
+                    adapter.setOrders(orders)
+                    binding.emptyText.visibility = if (orders.isEmpty()) View.VISIBLE else View.GONE
+                }
+                is HopApiClient.ApiResult.Error -> {
+                    binding.swipeRefresh.isRefreshing = false
+                    if (result.isUnauthorized) {
+                        handleUnauthorized()
+                    } else {
+                        showToast(result.message)
+                        binding.emptyText.visibility = View.VISIBLE
+                        binding.emptyText.text = result.message
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Socket ───────────────────────────────────────────────────────────────
+
+    private fun connectSocket() {
+        val userId = session.userId ?: return
+        val cafeId = session.cafeId ?: return
+
+        socketClient = HopSocketClient(
+            userId = userId,
+            cafeId = cafeId,
+            onNewOrder = { orderId, totalPrice, customerName ->
+                mainHandler.post { handleNewOrder(orderId, totalPrice, customerName) }
+            },
+            onOrderUpdated = { orderId, status ->
+                mainHandler.post { handleOrderUpdated(orderId, status) }
+            },
+            onConnectionChange = { connected ->
+                mainHandler.post { updateSocketStatus(connected) }
+            }
+        ).also { it.connect() }
+    }
+
+    // ── Socket event handlers ────────────────────────────────────────────────
+
+    /**
+     * Called on "newOrder" socket event.
+     *
+     * Strategy:
+     *  1. Immediately print a minimal receipt with the payload data so the
+     *     kitchen gets the ticket fast.
+     *  2. Refresh the full orders list in background; if the full order is
+     *     found, replace the prepended placeholder with real data.
+     */
+    private fun handleNewOrder(orderId: String, totalPrice: Double, customerName: String?) {
+        showToast(getString(R.string.toast_new_order))
+
+        // Step 1 — print immediately with what we have
+        val minimalText = OrderFormatter.formatMinimal(orderId, totalPrice, customerName)
+        printOrderReceipt(minimalText)
+
+        // Step 2 — refresh list; also reprint with full data if found
+        lifecycleScope.launch {
+            val token = session.accessToken ?: return@launch
+            val cafeId = session.cafeId ?: return@launch
+            when (val result = HopApiClient.getOrders(token, cafeId)) {
+                is HopApiClient.ApiResult.Success -> {
+                    adapter.setOrders(result.data)
+                    binding.emptyText.visibility =
+                        if (result.data.isEmpty()) View.VISIBLE else View.GONE
+
+                    // Optionally reprint with full item list if the order is found
+                    val fullOrder = result.data.find { it.id == orderId }
+                    if (fullOrder != null && !fullOrder.items.isNullOrEmpty()) {
+                        printOrderReceipt(OrderFormatter.format(fullOrder))
+                    }
+                }
+                is HopApiClient.ApiResult.Error -> {
+                    if (result.isUnauthorized) handleUnauthorized()
+                }
+            }
+        }
+    }
+
+    private fun handleOrderUpdated(orderId: String, status: String) {
+        adapter.updateOrderStatus(orderId, status)
+    }
+
+    // ── Shared print function ─────────────────────────────────────────────────
+    //
+    // printOrderReceipt() is the single entry point used by BOTH:
+    //   • the manual Print button in MainActivity (via SunmiPrinterHelper directly)
+    //   • the socket "newOrder" auto-print handler above
+    //
+    // It calls the identical SunmiPrinterHelper.printText() path the Print button uses.
+
+    private fun printOrderReceipt(receiptText: String) {
+        if (!printer.isConnected) return
+        printer.printText(receiptText) { success, message ->
+            if (!success) mainHandler.post { showToast("Print: $message") }
+        }
+    }
+
+    // ── Status update dialog ─────────────────────────────────────────────────
+
+    private fun showStatusDialog(order: Order) {
+        val statuses = arrayOf("pending", "processing", "completed", "canceled")
+        val labels = statuses.map { it.replaceFirstChar { c -> c.uppercase() } }.toTypedArray()
+        val current = statuses.indexOf(order.orderStatus)
+
+        AlertDialog.Builder(this)
+            .setTitle("Order #${order.id.takeLast(6).uppercase()}")
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                dialog.dismiss()
+                val newStatus = statuses[which]
+                if (newStatus != order.orderStatus) updateStatus(order.id, newStatus)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun updateStatus(orderId: String, status: String) {
+        lifecycleScope.launch {
+            val token = session.accessToken ?: return@launch
+            when (val result = HopApiClient.updateOrderStatus(token, orderId, status)) {
+                is HopApiClient.ApiResult.Success -> {
+                    adapter.updateOrderStatus(orderId, status)
+                }
+                is HopApiClient.ApiResult.Error -> {
+                    if (result.isUnauthorized) handleUnauthorized()
+                    else showToast(result.message)
+                }
+            }
+        }
+    }
+
+    // ── UI helpers ───────────────────────────────────────────────────────────
+
+    private fun updatePrinterStatus(connected: Boolean) {
+        binding.printerStatusText.text = getString(
+            if (connected) R.string.status_printer_connected else R.string.status_printer_disconnected
+        )
+        binding.printerStatusText.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (connected) R.color.primary else android.R.color.holo_red_dark
+            )
+        )
+    }
+
+    private fun updateSocketStatus(connected: Boolean) {
+        binding.socketStatusText.text = getString(
+            if (connected) R.string.status_socket_connected else R.string.status_socket_disconnected
+        )
+        binding.socketStatusText.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (connected) R.color.primary else android.R.color.holo_red_dark
+            )
+        )
+    }
+
+    private fun handleUnauthorized() {
+        lifecycleScope.launch {
+            val rt = session.refreshToken
+            if (!rt.isNullOrEmpty()) {
+                when (val r = HopApiClient.refreshToken(rt)) {
+                    is HopApiClient.ApiResult.Success -> {
+                        session.accessToken = r.data.accessToken
+                        if (r.data.refreshToken.isNotEmpty()) session.refreshToken = r.data.refreshToken
+                        loadOrders()
+                        return@launch
+                    }
+                    else -> {}
+                }
+            }
+            redirectToLogin()
+        }
+    }
+
+    private fun logout() {
+        socketClient?.disconnect()
+        socketClient = null
+        session.clear()
+        redirectToLogin()
+    }
+
+    private fun redirectToLogin() {
+        startActivity(Intent(this, LoginActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        })
+        finish()
+    }
+
+    private fun showToast(msg: String) =
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+}

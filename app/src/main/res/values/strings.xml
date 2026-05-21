@@ -3,10 +3,30 @@
     <string name="app_name">Hop Print</string>
     <string name="hint_enter_text">Enter text to print</string>
     <string name="btn_print">Print</string>
-    <string name="status_printer_connected">Printer connected</string>
-    <string name="status_printer_disconnected">Printer not connected</string>
+    <string name="status_printer_connected">🖨 Printer connected</string>
+    <string name="status_printer_disconnected">🖨 Printer not connected</string>
     <string name="status_printing">Printing…</string>
     <string name="status_print_success">Printed successfully</string>
     <string name="status_print_failed">Print failed</string>
     <string name="error_empty_input">Please enter something to print</string>
+
+    <!-- Login -->
+    <string name="label_admin_portal">Admin Portal</string>
+    <string name="hint_identifier">Email or phone</string>
+    <string name="hint_password">Password</string>
+    <string name="btn_login">Sign In</string>
+    <string name="error_identifier_required">Please enter your email or phone</string>
+    <string name="error_password_required">Please enter your password</string>
+
+    <!-- Orders -->
+    <string name="title_orders">Orders</string>
+    <string name="label_no_orders">No pending orders</string>
+    <string name="label_guest">Guest</string>
+    <string name="toast_new_order">New order received!</string>
+    <string name="status_socket_connected">⚡ Live connected</string>
+    <string name="status_socket_disconnected">⚡ Live disconnected</string>
+
+    <!-- Menu -->
+    <string name="menu_manual_print">Manual Print</string>
+    <string name="menu_logout">Logout</string>
 </resources>
