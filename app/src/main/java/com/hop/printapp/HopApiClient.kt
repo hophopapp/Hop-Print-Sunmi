@@ -103,13 +103,13 @@ object HopApiClient {
     suspend fun getOrders(
         token: String,
         cafeId: String,
-        orderStatus: String = "pending"
+        orderStatus: String? = "pending"  // null = no filter (all statuses)
     ): ApiResult<List<Order>> = withContext(Dispatchers.IO) {
         try {
             val url = "https://api.hophop.cafe/api/v1/admin/orders".toHttpUrl()
                 .newBuilder()
                 .addQueryParameter("cafe", cafeId)
-                .addQueryParameter("orderStatus", orderStatus)
+                .apply { if (orderStatus != null) addQueryParameter("orderStatus", orderStatus) }
                 .addQueryParameter("sortBy", "createdAt")
                 .addQueryParameter("sortOrder", "-1")
                 .build()

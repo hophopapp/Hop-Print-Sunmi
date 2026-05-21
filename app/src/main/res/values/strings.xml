@@ -29,4 +29,15 @@
     <!-- Menu -->
     <string name="menu_manual_print">Manual Print</string>
     <string name="menu_logout">Logout</string>
+
+    <!-- Order actions -->
+    <string name="action_print_receipt">Print Receipt</string>
+    <string name="action_change_status">Change Status</string>
+
+    <!-- Filter chips -->
+    <string name="filter_all">All</string>
+    <string name="filter_pending">Pending</string>
+    <string name="filter_processing">Processing</string>
+    <string name="filter_completed">Completed</string>
+    <string name="filter_canceled">Canceled</string>
 </resources>

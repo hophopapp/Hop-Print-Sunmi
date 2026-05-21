@@ -26,6 +26,9 @@ class OrdersActivity : AppCompatActivity() {
     private var socketClient: HopSocketClient? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // null = all statuses; default to pending on launch
+    private var currentFilter: String? = "pending"
+
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,13 +47,14 @@ class OrdersActivity : AppCompatActivity() {
         supportActionBar?.title = getString(R.string.title_orders)
 
         printer = SunmiPrinterHelper(this)
-        adapter = OrderAdapter(mutableListOf()) { order -> showStatusDialog(order) }
+        adapter = OrderAdapter(mutableListOf()) { order -> showOrderDialog(order) }
 
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
         binding.recyclerView.adapter = adapter
 
         binding.swipeRefresh.setOnRefreshListener { loadOrders() }
 
+        setupFilterChips()
         loadOrders()
     }
 
@@ -87,6 +91,22 @@ class OrdersActivity : AppCompatActivity() {
         else -> super.onOptionsItemSelected(item)
     }
 
+    // ── Filter chips ─────────────────────────────────────────────────────────
+
+    private fun setupFilterChips() {
+        binding.filterChipGroup.setOnCheckedStateChangeListener { _, checkedIds ->
+            currentFilter = when {
+                checkedIds.contains(R.id.chipAll) -> null
+                checkedIds.contains(R.id.chipPending) -> "pending"
+                checkedIds.contains(R.id.chipProcessing) -> "processing"
+                checkedIds.contains(R.id.chipCompleted) -> "completed"
+                checkedIds.contains(R.id.chipCanceled) -> "canceled"
+                else -> currentFilter
+            }
+            loadOrders()
+        }
+    }
+
     // ── Orders loading ───────────────────────────────────────────────────────
 
     private fun loadOrders() {
@@ -97,7 +117,7 @@ class OrdersActivity : AppCompatActivity() {
             val token = session.accessToken ?: run { redirectToLogin(); return@launch }
             val cafeId = session.cafeId ?: ""
 
-            when (val result = HopApiClient.getOrders(token, cafeId)) {
+            when (val result = HopApiClient.getOrders(token, cafeId, currentFilter)) {
                 is HopApiClient.ApiResult.Success -> {
                     binding.swipeRefresh.isRefreshing = false
                     val orders = result.data
@@ -161,7 +181,7 @@ class OrdersActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val token = session.accessToken ?: return@launch
             val cafeId = session.cafeId ?: return@launch
-            when (val result = HopApiClient.getOrders(token, cafeId)) {
+            when (val result = HopApiClient.getOrders(token, cafeId, currentFilter)) {
                 is HopApiClient.ApiResult.Success -> {
                     adapter.setOrders(result.data)
                     binding.emptyText.visibility =
@@ -199,7 +219,25 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
-    // ── Status update dialog ─────────────────────────────────────────────────
+    // ── Order action dialog ──────────────────────────────────────────────────
+
+    private fun showOrderDialog(order: Order) {
+        val title = "Order #${order.id.takeLast(6).uppercase()}"
+        val actions = arrayOf(
+            getString(R.string.action_print_receipt),
+            getString(R.string.action_change_status)
+        )
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setItems(actions) { _, which ->
+                when (which) {
+                    0 -> printOrderReceipt(OrderFormatter.format(order))
+                    1 -> showStatusDialog(order)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
 
     private fun showStatusDialog(order: Order) {
         val statuses = arrayOf("pending", "processing", "completed", "canceled")
