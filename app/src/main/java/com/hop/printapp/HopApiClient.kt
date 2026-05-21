@@ -100,11 +100,20 @@ object HopApiClient {
 
     // ── Orders ──────────────────────────────────────────────────────────────
 
+    data class OrdersPage(
+        val orders: List<Order>,
+        val currentPage: Int,
+        val totalPages: Int,
+        val totalOrders: Int
+    )
+
     suspend fun getOrders(
         token: String,
         cafeId: String,
-        orderStatus: String? = "pending"  // null = no filter (all statuses)
-    ): ApiResult<List<Order>> = withContext(Dispatchers.IO) {
+        orderStatus: String? = "pending",  // null = no filter (all statuses)
+        page: Int = 1,
+        limit: Int = 20
+    ): ApiResult<OrdersPage> = withContext(Dispatchers.IO) {
         try {
             val url = "https://api.hophop.cafe/api/v1/admin/orders".toHttpUrl()
                 .newBuilder()
@@ -112,6 +121,8 @@ object HopApiClient {
                 .apply { if (orderStatus != null) addQueryParameter("orderStatus", orderStatus) }
                 .addQueryParameter("sortBy", "createdAt")
                 .addQueryParameter("sortOrder", "-1")
+                .addQueryParameter("page", page.toString())
+                .addQueryParameter("limit", limit.toString())
                 .build()
             val req = Request.Builder()
                 .url(url)
@@ -125,7 +136,14 @@ object HopApiClient {
                 val orders = arr.mapNotNull { element ->
                     runCatching { gson.fromJson(element, Order::class.java) }.getOrNull()
                 }
-                ApiResult.Success(orders)
+                ApiResult.Success(
+                    OrdersPage(
+                        orders = orders,
+                        currentPage = obj.get("currentPage")?.asInt ?: page,
+                        totalPages = obj.get("totalPages")?.asInt ?: 1,
+                        totalOrders = obj.get("totalOrders")?.asInt ?: orders.size
+                    )
+                )
             } else {
                 ApiResult.Error("Failed to load orders (${resp.code})", resp.code)
             }

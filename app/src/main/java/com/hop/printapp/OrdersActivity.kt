@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.hop.printapp.databinding.ActivityOrdersBinding
 import kotlinx.coroutines.launch
 
@@ -28,6 +29,10 @@ class OrdersActivity : AppCompatActivity() {
 
     // null = all statuses; default to pending on launch
     private var currentFilter: String? = "pending"
+
+    private var currentPage = 1
+    private var totalPages = 1
+    private var isLoadingMore = false
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -55,6 +60,7 @@ class OrdersActivity : AppCompatActivity() {
         binding.swipeRefresh.setOnRefreshListener { loadOrders() }
 
         setupFilterChips()
+        setupScrollListener()
         loadOrders()
     }
 
@@ -107,32 +113,63 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
+    // ── Scroll / pagination ──────────────────────────────────────────────────
+
+    private fun setupScrollListener() {
+        binding.recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                if (dy <= 0 || isLoadingMore || currentPage >= totalPages) return
+                val lm = recyclerView.layoutManager as LinearLayoutManager
+                if (lm.findLastVisibleItemPosition() >= lm.itemCount - 4) {
+                    loadOrders(currentPage + 1)
+                }
+            }
+        })
+    }
+
     // ── Orders loading ───────────────────────────────────────────────────────
 
-    private fun loadOrders() {
-        binding.swipeRefresh.isRefreshing = true
-        binding.emptyText.visibility = View.GONE
+    private fun loadOrders(page: Int = 1) {
+        if (page == 1) {
+            binding.swipeRefresh.isRefreshing = true
+            binding.emptyText.visibility = View.GONE
+        } else {
+            if (isLoadingMore) return
+            isLoadingMore = true
+            binding.loadMoreProgress.visibility = View.VISIBLE
+        }
 
         lifecycleScope.launch {
             val token = session.accessToken ?: run { redirectToLogin(); return@launch }
             val cafeId = session.cafeId ?: ""
 
-            when (val result = HopApiClient.getOrders(token, cafeId, currentFilter)) {
+            when (val result = HopApiClient.getOrders(token, cafeId, currentFilter, page)) {
                 is HopApiClient.ApiResult.Success -> {
-                    binding.swipeRefresh.isRefreshing = false
-                    val orders = result.data
-                    adapter.setOrders(orders)
-                    binding.emptyText.visibility = if (orders.isEmpty()) View.VISIBLE else View.GONE
+                    val data = result.data
+                    currentPage = data.currentPage
+                    totalPages = data.totalPages
+                    if (page == 1) {
+                        binding.swipeRefresh.isRefreshing = false
+                        adapter.setOrders(data.orders)
+                        binding.emptyText.visibility =
+                            if (data.orders.isEmpty()) View.VISIBLE else View.GONE
+                    } else {
+                        isLoadingMore = false
+                        binding.loadMoreProgress.visibility = View.GONE
+                        adapter.appendOrders(data.orders)
+                    }
                 }
                 is HopApiClient.ApiResult.Error -> {
-                    binding.swipeRefresh.isRefreshing = false
-                    if (result.isUnauthorized) {
-                        handleUnauthorized()
-                    } else {
-                        showToast(result.message)
+                    if (page == 1) {
+                        binding.swipeRefresh.isRefreshing = false
                         binding.emptyText.visibility = View.VISIBLE
                         binding.emptyText.text = result.message
+                    } else {
+                        isLoadingMore = false
+                        binding.loadMoreProgress.visibility = View.GONE
                     }
+                    if (result.isUnauthorized) handleUnauthorized()
+                    else showToast(result.message)
                 }
             }
         }
@@ -177,18 +214,20 @@ class OrdersActivity : AppCompatActivity() {
         val minimalText = OrderFormatter.formatMinimal(orderId, totalPrice, customerName)
         printOrderReceipt(minimalText)
 
-        // Step 2 — refresh list; also reprint with full data if found
+        // Step 2 — reload page 1 to surface the new order; reprint with full data if found
         lifecycleScope.launch {
             val token = session.accessToken ?: return@launch
             val cafeId = session.cafeId ?: return@launch
-            when (val result = HopApiClient.getOrders(token, cafeId, currentFilter)) {
+            when (val result = HopApiClient.getOrders(token, cafeId, currentFilter, page = 1)) {
                 is HopApiClient.ApiResult.Success -> {
-                    adapter.setOrders(result.data)
+                    val data = result.data
+                    currentPage = data.currentPage
+                    totalPages = data.totalPages
+                    adapter.setOrders(data.orders)
                     binding.emptyText.visibility =
-                        if (result.data.isEmpty()) View.VISIBLE else View.GONE
+                        if (data.orders.isEmpty()) View.VISIBLE else View.GONE
 
-                    // Optionally reprint with full item list if the order is found
-                    val fullOrder = result.data.find { it.id == orderId }
+                    val fullOrder = data.orders.find { it.id == orderId }
                     if (fullOrder != null && !fullOrder.items.isNullOrEmpty()) {
                         printOrderReceipt(OrderFormatter.format(fullOrder))
                     }

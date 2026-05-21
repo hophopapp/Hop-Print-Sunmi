@@ -69,6 +69,12 @@ class OrderAdapter(
         notifyDataSetChanged()
     }
 
+    fun appendOrders(newOrders: List<Order>) {
+        val start = orders.size
+        orders.addAll(newOrders)
+        notifyItemRangeInserted(start, newOrders.size)
+    }
+
     fun prependOrder(order: Order) {
         orders.add(0, order)
         notifyItemInserted(0)
