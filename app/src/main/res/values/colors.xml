@@ -10,4 +10,9 @@
     <color name="surface">#FFFFFF</color>
     <color name="on_background">#212121</color>
     <color name="on_surface">#212121</color>
+
+    <color name="status_pending">#FFA000</color>
+    <color name="status_processing">#1976D2</color>
+    <color name="status_completed">#388E3C</color>
+    <color name="status_canceled">#D32F2F</color>
 </resources>

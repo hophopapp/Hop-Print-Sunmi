@@ -11,7 +11,11 @@ import woyou.aidlservice.jiuiv5.IWoyouService
 
 class SunmiPrinterHelper(private val context: Context) {
 
-    private var printerService: IWoyouService? = null
+    var service: IWoyouService? = null
+        private set
+    private var printerService: IWoyouService?
+        get() = service
+        set(value) { service = value }
     private var onConnected: (() -> Unit)? = null
     private var onDisconnected: (() -> Unit)? = null
 
@@ -71,6 +75,8 @@ class SunmiPrinterHelper(private val context: Context) {
                 override fun onRaiseException(code: Int, msg: String?) {
                     onResult(false, msg ?: "Print error")
                 }
+
+                override fun onPrintResult(code: Int, msg: String?) {}
             })
         } catch (e: RemoteException) {
             onResult(false, e.message ?: "Remote exception")

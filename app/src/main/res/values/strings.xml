@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Hop Print</string>
+
+    <!-- Login -->
+    <string name="hint_email">Email</string>
+    <string name="hint_password">Password</string>
+    <string name="btn_login">Login</string>
+
+    <!-- Orders -->
+    <string name="orders_title">Orders</string>
+    <string name="no_orders">No orders yet</string>
+    <string name="btn_logout">Logout</string>
+
+    <!-- Manual Print (original screen) -->
     <string name="hint_enter_text">Enter text to print</string>
     <string name="btn_print">Print</string>
     <string name="status_printer_connected">Printer connected</string>
