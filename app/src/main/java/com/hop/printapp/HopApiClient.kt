@@ -51,12 +51,23 @@ object HopApiClient {
                 if (resp.isSuccessful) {
                     val obj = gson.fromJson(json, JsonObject::class.java)
                     val user = obj.getAsJsonObject("user")
+                    // assignedCafe may be a plain ObjectId string or a populated object
+                    val cafeElement = user.get("assignedCafe")
+                    val cafeId = when {
+                        cafeElement == null || cafeElement.isJsonNull -> ""
+                        cafeElement.isJsonObject ->
+                            cafeElement.asJsonObject.get("_id")?.asString ?: ""
+                        else -> cafeElement.asString
+                    }.ifEmpty {
+                        // fallback to cafeId field if assignedCafe was empty
+                        runCatching { user.get("cafeId")?.asString }.getOrNull() ?: ""
+                    }
                     ApiResult.Success(
                         LoginData(
                             accessToken = obj.get("accessToken").asString,
                             refreshToken = obj.get("refreshToken").asString,
                             userId = user.get("_id").asString,
-                            cafeId = user.get("assignedCafe").asString
+                            cafeId = cafeId
                         )
                     )
                 } else {
@@ -117,7 +128,7 @@ object HopApiClient {
         try {
             val url = "https://api.hophop.cafe/api/v1/admin/orders".toHttpUrl()
                 .newBuilder()
-                .addQueryParameter("cafe", cafeId)
+                .apply { if (cafeId.isNotEmpty()) addQueryParameter("cafe", cafeId) }
                 .apply { if (orderStatus != null) addQueryParameter("orderStatus", orderStatus) }
                 .addQueryParameter("sortBy", "createdAt")
                 .addQueryParameter("sortOrder", "-1")
@@ -145,7 +156,9 @@ object HopApiClient {
                     )
                 )
             } else {
-                ApiResult.Error("Failed to load orders (${resp.code})", resp.code)
+                val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
+                val msg = obj?.get("message")?.asString ?: "Failed to load orders (${resp.code})"
+                ApiResult.Error(msg, resp.code)
             }
         } catch (e: IOException) {
             ApiResult.Error(e.message ?: "Network error")
