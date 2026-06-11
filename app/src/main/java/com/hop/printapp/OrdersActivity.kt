@@ -184,8 +184,8 @@ class OrdersActivity : AppCompatActivity() {
         socketClient = HopSocketClient(
             userId = userId,
             cafeId = cafeId,
-            onNewOrder = { orderId, totalPrice, customerName ->
-                mainHandler.post { handleNewOrder(orderId, totalPrice, customerName) }
+            onNewOrder = { order ->
+                mainHandler.post { handleNewOrder(order) }
             },
             onOrderUpdated = { orderId, status ->
                 mainHandler.post { handleOrderUpdated(orderId, status) }
@@ -198,23 +198,19 @@ class OrdersActivity : AppCompatActivity() {
 
     // ── Socket event handlers ────────────────────────────────────────────────
 
-    /**
-     * Called on "newOrder" socket event.
-     *
-     * Strategy:
-     *  1. Immediately print a minimal receipt with the payload data so the
-     *     kitchen gets the ticket fast.
-     *  2. Refresh the full orders list in background; if the full order is
-     *     found, replace the prepended placeholder with real data.
-     */
-    private fun handleNewOrder(orderId: String, totalPrice: Double, customerName: String?) {
+    private fun handleNewOrder(order: Order?) {
         showToast(getString(R.string.toast_new_order))
 
-        // Step 1 — print immediately with what we have
-        val minimalText = OrderFormatter.formatMinimal(orderId, totalPrice, customerName)
-        printOrderReceipt(minimalText)
+        // Print using full payload data from the socket event (no API round-trip needed)
+        val receiptText = if (order != null && !order.items.isNullOrEmpty()) {
+            OrderFormatter.format(order)
+        } else {
+            OrderFormatter.formatMinimal(order?.id ?: "", order?.totalPrice ?: 0.0,
+                order?.user?.name ?: order?.user?.email)
+        }
+        printOrderReceipt(receiptText)
 
-        // Step 2 — reload page 1 to surface the new order; reprint with full data if found
+        // Refresh the orders list in the background
         lifecycleScope.launch {
             val token = session.accessToken ?: return@launch
             val cafeId = session.cafeId ?: return@launch
@@ -226,11 +222,6 @@ class OrdersActivity : AppCompatActivity() {
                     adapter.setOrders(data.orders)
                     binding.emptyText.visibility =
                         if (data.orders.isEmpty()) View.VISIBLE else View.GONE
-
-                    val fullOrder = data.orders.find { it.id == orderId }
-                    if (fullOrder != null && !fullOrder.items.isNullOrEmpty()) {
-                        printOrderReceipt(OrderFormatter.format(fullOrder))
-                    }
                 }
                 is HopApiClient.ApiResult.Error -> {
                     if (result.isUnauthorized) handleUnauthorized()

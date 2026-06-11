@@ -1,5 +1,6 @@
 package com.hop.printapp
 
+import com.google.gson.Gson
 import io.socket.client.IO
 import io.socket.client.Socket
 import io.socket.emitter.Emitter
@@ -8,10 +9,11 @@ import org.json.JSONObject
 class HopSocketClient(
     private val userId: String,
     private val cafeId: String,
-    private val onNewOrder: (orderId: String, totalPrice: Double, customerName: String?) -> Unit,
+    private val onNewOrder: (order: Order?) -> Unit,
     private val onOrderUpdated: (orderId: String, status: String) -> Unit,
     private val onConnectionChange: (connected: Boolean) -> Unit = {}
 ) {
+    private val gson = Gson()
     private var socket: Socket? = null
 
     fun connect() {
@@ -39,13 +41,11 @@ class HopSocketClient(
 
             on("newOrder", Emitter.Listener { args ->
                 val data = args.getOrNull(0) as? JSONObject ?: return@Listener
-                val order = data.optJSONObject("order") ?: return@Listener
-                val orderId = order.optString("_id")
-                val total = order.optDouble("totalPrice", 0.0)
-                val userObj = order.optJSONObject("user")
-                val name = userObj?.optString("name")?.takeIf { it.isNotBlank() }
-                    ?: userObj?.optString("email")?.takeIf { it.isNotBlank() }
-                onNewOrder(orderId, total, name)
+                val orderJson = data.optJSONObject("order") ?: return@Listener
+                val parsed = runCatching {
+                    gson.fromJson(orderJson.toString(), Order::class.java)
+                }.getOrNull()
+                onNewOrder(parsed)
             })
 
             on("orderUpdated", Emitter.Listener { args ->
