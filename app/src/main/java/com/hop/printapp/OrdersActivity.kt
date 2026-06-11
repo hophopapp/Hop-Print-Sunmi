@@ -190,9 +190,6 @@ class OrdersActivity : AppCompatActivity() {
             onOrderUpdated = { orderId, status ->
                 mainHandler.post { handleOrderUpdated(orderId, status) }
             },
-            onPrintOrder = { orderId, totalPrice, customerName ->
-                mainHandler.post { handlePrintOrder(orderId, totalPrice, customerName) }
-            },
             onConnectionChange = { connected ->
                 mainHandler.post { updateSocketStatus(connected) }
             }
@@ -244,31 +241,6 @@ class OrdersActivity : AppCompatActivity() {
 
     private fun handleOrderUpdated(orderId: String, status: String) {
         adapter.updateOrderStatus(orderId, status)
-    }
-
-    /**
-     * Called on "printOrder" event from the global printers room (printer socket).
-     * Print immediately with payload data, then upgrade to full receipt if the
-     * order is available in the API.
-     */
-    private fun handlePrintOrder(orderId: String, totalPrice: Double, customerName: String?) {
-        val minimalText = OrderFormatter.formatMinimal(orderId, totalPrice, customerName)
-        printOrderReceipt(minimalText)
-
-        if (orderId.isBlank()) return
-        lifecycleScope.launch {
-            val token = session.accessToken ?: return@launch
-            val cafeId = session.cafeId ?: return@launch
-            when (val result = HopApiClient.getOrders(token, cafeId, null, page = 1)) {
-                is HopApiClient.ApiResult.Success -> {
-                    val fullOrder = result.data.orders.find { it.id == orderId }
-                    if (fullOrder != null && !fullOrder.items.isNullOrEmpty()) {
-                        printOrderReceipt(OrderFormatter.format(fullOrder))
-                    }
-                }
-                else -> {}
-            }
-        }
     }
 
     // ── Shared print function ─────────────────────────────────────────────────
