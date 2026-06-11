@@ -34,6 +34,8 @@
     <string name="action_print_receipt">Print Receipt</string>
     <string name="action_change_status">Change Status</string>
 
+    <string name="error_printer_not_connected">Printer not connected — print manually from order list</string>
+
     <!-- Filter chips -->
     <string name="filter_all">All</string>
     <string name="filter_pending">Pending</string>
