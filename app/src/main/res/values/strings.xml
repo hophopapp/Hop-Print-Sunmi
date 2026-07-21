@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Hop Print</string>
+    <string name="app_name">Hop Merchant</string>
     <string name="hint_enter_text">Enter text to print</string>
     <string name="btn_print">Print</string>
     <string name="status_printer_connected">🖨 Printer connected</string>
