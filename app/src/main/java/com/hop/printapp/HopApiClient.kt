@@ -118,6 +118,14 @@ object HopApiClient {
         val totalOrders: Int
     )
 
+    data class CafeItem(val cafeId: String = "", val name: String = "")
+
+    data class AddPointsData(
+        val cafeId: String = "",
+        val cafeName: String = "",
+        val userPoints: Int = 0
+    )
+
     suspend fun getOrders(
         token: String,
         cafeId: String,
@@ -158,6 +166,65 @@ object HopApiClient {
             } else {
                 val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
                 val msg = obj?.get("message")?.asString ?: "Failed to load orders (${resp.code})"
+                ApiResult.Error(msg, resp.code)
+            }
+        } catch (e: IOException) {
+            ApiResult.Error(e.message ?: "Network error")
+        }
+    }
+
+    // ── Cafes ───────────────────────────────────────────────────────────────
+
+    suspend fun getCafes(token: String): ApiResult<List<CafeItem>> =
+        withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder()
+                    .url("$BASE/cafes/cafes/ids-names")
+                    .header("Authorization", "Bearer $token")
+                    .build()
+                val resp = http.newCall(req).execute()
+                val json = resp.body?.string() ?: ""
+                if (resp.isSuccessful) {
+                    val obj = gson.fromJson(json, JsonObject::class.java)
+                    val arr = obj.getAsJsonArray("data")
+                    val cafes = arr.mapNotNull { element ->
+                        runCatching { gson.fromJson(element, CafeItem::class.java) }.getOrNull()
+                    }
+                    ApiResult.Success(cafes)
+                } else {
+                    val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
+                    val msg = obj?.get("message")?.asString ?: "Failed to load cafes (${resp.code})"
+                    ApiResult.Error(msg, resp.code)
+                }
+            } catch (e: IOException) {
+                ApiResult.Error(e.message ?: "Network error")
+            }
+        }
+
+    // ── Points ──────────────────────────────────────────────────────────────
+
+    suspend fun addPoints(
+        token: String,
+        userId: String,
+        cafeId: String,
+        points: Int
+    ): ApiResult<AddPointsData> = withContext(Dispatchers.IO) {
+        try {
+            val body = gson.toJson(mapOf("points" to points))
+            val req = Request.Builder()
+                .url("$BASE/user-points/$userId/cafe/$cafeId")
+                .header("Authorization", "Bearer $token")
+                .patch(body.toRequestBody(JSON_MEDIA))
+                .build()
+            val resp = http.newCall(req).execute()
+            val json = resp.body?.string() ?: ""
+            if (resp.isSuccessful) {
+                val obj = gson.fromJson(json, JsonObject::class.java)
+                val data = obj.getAsJsonObject("data")
+                ApiResult.Success(gson.fromJson(data, AddPointsData::class.java))
+            } else {
+                val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
+                val msg = obj?.get("message")?.asString ?: "Failed to add points (${resp.code})"
                 ApiResult.Error(msg, resp.code)
             }
         } catch (e: IOException) {

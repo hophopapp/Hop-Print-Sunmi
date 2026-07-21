@@ -86,6 +86,10 @@ class OrdersActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
+        R.id.action_add_points -> {
+            startActivity(Intent(this, AddPointsActivity::class.java))
+            true
+        }
         R.id.action_manual_print -> {
             startActivity(Intent(this, MainActivity::class.java))
             true

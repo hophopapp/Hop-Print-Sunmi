@@ -27,8 +27,21 @@
     <string name="status_socket_disconnected">⚡ Live disconnected</string>
 
     <!-- Menu -->
+    <string name="menu_add_points">Add Points</string>
     <string name="menu_manual_print">Manual Print</string>
     <string name="menu_logout">Logout</string>
+
+    <!-- Add Points screen -->
+    <string name="title_add_points">Add Loyalty Points</string>
+    <string name="label_customer">Customer</string>
+    <string name="btn_scan_qr">Scan Customer QR</string>
+    <string name="hint_select_cafe">Select Cafe</string>
+    <string name="hint_points_to_add">Points to add</string>
+    <string name="btn_add_points">Add Points</string>
+    <string name="msg_points_added">Points added!</string>
+    <string name="error_scan_required">Please scan a customer QR code first</string>
+    <string name="error_cafe_required">Please select a cafe</string>
+    <string name="error_points_invalid">Points must be greater than 0</string>
 
     <!-- Order actions -->
     <string name="action_print_receipt">Print Receipt</string>

@@ -3,6 +3,11 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
+        android:id="@+id/action_add_points"
+        android:title="@string/menu_add_points"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_manual_print"
         android:title="@string/menu_manual_print"
         app:showAsAction="never" />
