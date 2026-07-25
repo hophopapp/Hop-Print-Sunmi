@@ -5,8 +5,6 @@ import android.os.Bundle
 import android.view.MenuItem
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import android.widget.ArrayAdapter
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.hop.printapp.databinding.ActivityAddPointsBinding
@@ -19,9 +17,7 @@ class AddPointsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityAddPointsBinding
     private lateinit var session: SessionManager
 
-    private var cafes: List<HopApiClient.CafeItem> = emptyList()
     private var scannedUserId: String? = null
-    private var selectedCafeId: String? = null
 
     private val scanLauncher = registerForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
@@ -53,12 +49,6 @@ class AddPointsActivity : AppCompatActivity() {
             })
         }
 
-        binding.cafeAutoComplete.setOnItemClickListener { _, _, position, _ ->
-            selectedCafeId = cafes.getOrNull(position)?.cafeId
-            binding.successCard.visibility = View.GONE
-            updateSubmitState()
-        }
-
         binding.pointsEditText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 if (binding.submitButton.isEnabled) submitPoints()
@@ -77,7 +67,7 @@ class AddPointsActivity : AppCompatActivity() {
 
         binding.submitButton.setOnClickListener { submitPoints() }
 
-        loadCafes()
+        loadCafeName()
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -85,28 +75,25 @@ class AddPointsActivity : AppCompatActivity() {
         return super.onOptionsItemSelected(item)
     }
 
-    // ── Cafe loading ─────────────────────────────────────────────────────────
+    // ── Cafe name display ────────────────────────────────────────────────────
 
-    private fun loadCafes() {
-        setLoading(true)
+    private fun loadCafeName() {
+        val cafeId = session.cafeId
+        if (cafeId.isNullOrBlank()) {
+            binding.cafeNameText.text = "No cafe assigned"
+            return
+        }
         lifecycleScope.launch {
             val token = session.accessToken ?: run { redirectToLogin(); return@launch }
             when (val result = HopApiClient.getCafes(token)) {
                 is HopApiClient.ApiResult.Success -> {
-                    cafes = result.data
-                    val names = cafes.map { it.name }
-                    val adapter = ArrayAdapter(
-                        this@AddPointsActivity,
-                        android.R.layout.simple_dropdown_item_1line,
-                        names
-                    )
-                    binding.cafeAutoComplete.setAdapter(adapter)
-                    setLoading(false)
+                    val cafe = result.data.find { it.cafeId == cafeId }
+                    binding.cafeNameText.text = cafe?.name ?: cafeId
                 }
                 is HopApiClient.ApiResult.Error -> {
-                    setLoading(false)
+                    // Non-fatal — still usable, just show the raw cafeId
+                    binding.cafeNameText.text = cafeId
                     if (result.isUnauthorized) handleUnauthorized()
-                    else showError(result.message)
                 }
             }
         }
@@ -116,7 +103,7 @@ class AddPointsActivity : AppCompatActivity() {
 
     private fun submitPoints() {
         val userId = scannedUserId
-        val cafeId = selectedCafeId
+        val cafeId = session.cafeId
         val points = binding.pointsEditText.text?.toString()?.trim()?.toIntOrNull() ?: 0
 
         if (userId.isNullOrBlank()) {
@@ -124,7 +111,7 @@ class AddPointsActivity : AppCompatActivity() {
             return
         }
         if (cafeId.isNullOrBlank()) {
-            showError(getString(R.string.error_cafe_required))
+            showError("No cafe assigned to this account")
             return
         }
         if (points <= 0) {
@@ -141,11 +128,10 @@ class AddPointsActivity : AppCompatActivity() {
                 is HopApiClient.ApiResult.Success -> {
                     setLoading(false)
                     val data = result.data
-                    binding.successDetail.text =
-                        "Balance: ${data.userPoints} pts at ${data.cafeName}"
+                    binding.successDetail.text = "Balance: ${data.userPoints} pts at ${data.cafeName}"
                     binding.successCard.visibility = View.VISIBLE
 
-                    // Clear userId + points for the next customer; keep cafe selected
+                    // Clear userId + points for the next customer
                     scannedUserId = null
                     binding.userIdText.visibility = View.GONE
                     binding.pointsEditText.setText("")
@@ -164,18 +150,14 @@ class AddPointsActivity : AppCompatActivity() {
 
     private fun updateSubmitState() {
         val points = binding.pointsEditText.text?.toString()?.trim()?.toIntOrNull() ?: 0
-        binding.submitButton.isEnabled =
-            !scannedUserId.isNullOrBlank() && !selectedCafeId.isNullOrBlank() && points > 0
+        binding.submitButton.isEnabled = !scannedUserId.isNullOrBlank() && points > 0
     }
 
     private fun setLoading(loading: Boolean) {
         binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
-        binding.submitButton.isEnabled = !loading && run {
-            val points = binding.pointsEditText.text?.toString()?.trim()?.toIntOrNull() ?: 0
-            !scannedUserId.isNullOrBlank() && !selectedCafeId.isNullOrBlank() && points > 0
-        }
+        val points = binding.pointsEditText.text?.toString()?.trim()?.toIntOrNull() ?: 0
+        binding.submitButton.isEnabled = !loading && !scannedUserId.isNullOrBlank() && points > 0
         binding.scanButton.isEnabled = !loading
-        binding.cafeAutoComplete.isEnabled = !loading
         binding.pointsEditText.isEnabled = !loading
     }
 
@@ -192,7 +174,7 @@ class AddPointsActivity : AppCompatActivity() {
                     is HopApiClient.ApiResult.Success -> {
                         session.accessToken = r.data.accessToken
                         if (r.data.refreshToken.isNotEmpty()) session.refreshToken = r.data.refreshToken
-                        loadCafes()
+                        loadCafeName()
                         return@launch
                     }
                     else -> {}
