@@ -103,15 +103,10 @@ class AddPointsActivity : AppCompatActivity() {
 
     private fun submitPoints() {
         val userId = scannedUserId
-        val cafeId = session.cafeId
         val points = binding.pointsEditText.text?.toString()?.trim()?.toIntOrNull() ?: 0
 
         if (userId.isNullOrBlank()) {
             showError(getString(R.string.error_scan_required))
-            return
-        }
-        if (cafeId.isNullOrBlank()) {
-            showError("No cafe assigned to this account")
             return
         }
         if (points <= 0) {
@@ -124,11 +119,10 @@ class AddPointsActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val token = session.accessToken ?: run { redirectToLogin(); return@launch }
-            when (val result = HopApiClient.addPoints(token, userId, cafeId, points)) {
+            when (val result = HopApiClient.addPoints(token, userId, points)) {
                 is HopApiClient.ApiResult.Success -> {
                     setLoading(false)
-                    val data = result.data
-                    binding.successDetail.text = "Balance: ${data.userPoints} pts at ${data.cafeName}"
+                    binding.successDetail.text = "$points point${if (points != 1) "s" else ""} added for customer …${userId.takeLast(6).uppercase()}"
                     binding.successCard.visibility = View.VISIBLE
 
                     // Clear userId + points for the next customer

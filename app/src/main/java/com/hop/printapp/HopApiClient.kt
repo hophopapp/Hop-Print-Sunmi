@@ -206,23 +206,20 @@ object HopApiClient {
     suspend fun addPoints(
         token: String,
         userId: String,
-        cafeId: String,
         points: Int
-    ): ApiResult<AddPointsData> = withContext(Dispatchers.IO) {
+    ): ApiResult<Unit> = withContext(Dispatchers.IO) {
         try {
             val body = gson.toJson(mapOf("points" to points))
             val req = Request.Builder()
-                .url("$BASE/user-points/$userId/cafe/$cafeId")
+                .url("$BASE/user-points/$userId")
                 .header("Authorization", "Bearer $token")
                 .patch(body.toRequestBody(JSON_MEDIA))
                 .build()
             val resp = http.newCall(req).execute()
-            val json = resp.body?.string() ?: ""
             if (resp.isSuccessful) {
-                val obj = gson.fromJson(json, JsonObject::class.java)
-                val data = obj.getAsJsonObject("data")
-                ApiResult.Success(gson.fromJson(data, AddPointsData::class.java))
+                ApiResult.Success(Unit)
             } else {
+                val json = resp.body?.string() ?: ""
                 val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
                 val msg = obj?.get("message")?.asString ?: "Failed to add points (${resp.code})"
                 ApiResult.Error(msg, resp.code)
