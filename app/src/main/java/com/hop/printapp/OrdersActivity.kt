@@ -1,8 +1,15 @@
 package com.hop.printapp
 
+import android.Manifest
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.view.Menu
 import android.view.MenuItem
@@ -10,6 +17,7 @@ import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -21,10 +29,8 @@ class OrdersActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityOrdersBinding
     private lateinit var session: SessionManager
-    private lateinit var printer: SunmiPrinterHelper
     private lateinit var adapter: OrderAdapter
 
-    private var socketClient: HopSocketClient? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // null = all statuses; default to pending on launch
@@ -33,6 +39,39 @@ class OrdersActivity : AppCompatActivity() {
     private var currentPage = 1
     private var totalPages = 1
     private var isLoadingMore = false
+
+    // ── Service binding ──────────────────────────────────────────────────────
+
+    private var printerService: PrinterService? = null
+    private var serviceBound = false
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, service: IBinder) {
+            printerService = (service as PrinterService.LocalBinder).getService()
+            serviceBound = true
+            printerService?.listener = serviceListener
+            // Sync UI with current service state immediately
+            updatePrinterStatus(printerService?.isPrinterConnected == true)
+            updateSocketStatus(printerService?.isSocketConnected == true)
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            serviceBound = false
+            printerService = null
+        }
+    }
+
+    private val serviceListener = object : PrinterService.Listener {
+        override fun onPrinterStatus(connected: Boolean) = updatePrinterStatus(connected)
+        override fun onSocketStatus(connected: Boolean) = updateSocketStatus(connected)
+        override fun onNewOrder() {
+            showToast(getString(R.string.toast_new_order))
+            loadOrders()
+        }
+        override fun onOrderUpdated(orderId: String, status: String) {
+            adapter.updateOrderStatus(orderId, status)
+        }
+    }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -51,9 +90,7 @@ class OrdersActivity : AppCompatActivity() {
         setSupportActionBar(binding.toolbar)
         supportActionBar?.title = getString(R.string.title_orders)
 
-        printer = SunmiPrinterHelper(this)
         adapter = OrderAdapter(mutableListOf()) { order -> showOrderDialog(order) }
-
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
         binding.recyclerView.adapter = adapter
 
@@ -62,22 +99,30 @@ class OrdersActivity : AppCompatActivity() {
         setupFilterChips()
         setupScrollListener()
         loadOrders()
+
+        requestNotificationPermission()
     }
 
     override fun onStart() {
         super.onStart()
-        printer.bind(
-            onConnected = { mainHandler.post { updatePrinterStatus(true) } },
-            onDisconnected = { mainHandler.post { updatePrinterStatus(false) } }
-        )
-        connectSocket()
+        // Start the service (no-op if already running) then bind for UI callbacks
+        val intent = Intent(this, PrinterService::class.java).apply {
+            putExtra(PrinterService.EXTRA_USER_ID, session.userId)
+            putExtra(PrinterService.EXTRA_CAFE_ID, session.cafeId)
+        }
+        ContextCompat.startForegroundService(this, intent)
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
     override fun onStop() {
         super.onStop()
-        printer.unbind()
-        socketClient?.disconnect()
-        socketClient = null
+        // Unregister listener and unbind — service keeps running in background
+        if (serviceBound) {
+            printerService?.listener = null
+            unbindService(serviceConnection)
+            serviceBound = false
+            printerService = null
+        }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -179,79 +224,15 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
-    // ── Socket ───────────────────────────────────────────────────────────────
-
-    private fun connectSocket() {
-        val userId = session.userId ?: return
-        val cafeId = session.cafeId ?: return
-
-        socketClient = HopSocketClient(
-            userId = userId,
-            cafeId = cafeId,
-            onNewOrder = { order ->
-                mainHandler.post { handleNewOrder(order) }
-            },
-            onOrderUpdated = { orderId, status ->
-                mainHandler.post { handleOrderUpdated(orderId, status) }
-            },
-            onConnectionChange = { connected ->
-                mainHandler.post { updateSocketStatus(connected) }
-            }
-        ).also { it.connect() }
-    }
-
-    // ── Socket event handlers ────────────────────────────────────────────────
-
-    private fun handleNewOrder(order: Order?) {
-        showToast(getString(R.string.toast_new_order))
-
-        // Print using full payload data from the socket event (no API round-trip needed)
-        val receiptText = if (order != null && !order.items.isNullOrEmpty()) {
-            OrderFormatter.format(order)
-        } else {
-            OrderFormatter.formatMinimal(order?.id ?: "", order?.totalPrice ?: 0.0,
-                order?.user?.name ?: order?.user?.email)
-        }
-        printOrderReceipt(receiptText)
-
-        // Refresh the orders list in the background
-        lifecycleScope.launch {
-            val token = session.accessToken ?: return@launch
-            val cafeId = session.cafeId ?: return@launch
-            when (val result = HopApiClient.getOrders(token, cafeId, currentFilter, page = 1)) {
-                is HopApiClient.ApiResult.Success -> {
-                    val data = result.data
-                    currentPage = data.currentPage
-                    totalPages = data.totalPages
-                    adapter.setOrders(data.orders)
-                    binding.emptyText.visibility =
-                        if (data.orders.isEmpty()) View.VISIBLE else View.GONE
-                }
-                is HopApiClient.ApiResult.Error -> {
-                    if (result.isUnauthorized) handleUnauthorized()
-                }
-            }
-        }
-    }
-
-    private fun handleOrderUpdated(orderId: String, status: String) {
-        adapter.updateOrderStatus(orderId, status)
-    }
-
-    // ── Shared print function ─────────────────────────────────────────────────
-    //
-    // printOrderReceipt() is the single entry point used by BOTH:
-    //   • the manual Print button in MainActivity (via SunmiPrinterHelper directly)
-    //   • the socket "newOrder" auto-print handler above
-    //
-    // It calls the identical SunmiPrinterHelper.printText() path the Print button uses.
+    // ── Print (manual, via dialog) ───────────────────────────────────────────
 
     private fun printOrderReceipt(receiptText: String) {
-        if (!printer.isConnected) {
+        val svc = printerService
+        if (svc == null || !svc.isPrinterConnected) {
             showToast(getString(R.string.error_printer_not_connected))
             return
         }
-        printer.printText(receiptText) { success, message ->
+        svc.print(receiptText) { success, message ->
             if (!success) mainHandler.post { showToast("Print failed: $message") }
         }
     }
@@ -296,9 +277,7 @@ class OrdersActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val token = session.accessToken ?: return@launch
             when (val result = HopApiClient.updateOrderStatus(token, orderId, status)) {
-                is HopApiClient.ApiResult.Success -> {
-                    adapter.updateOrderStatus(orderId, status)
-                }
+                is HopApiClient.ApiResult.Success -> adapter.updateOrderStatus(orderId, status)
                 is HopApiClient.ApiResult.Error -> {
                     if (result.isUnauthorized) handleUnauthorized()
                     else showToast(result.message)
@@ -352,9 +331,8 @@ class OrdersActivity : AppCompatActivity() {
     }
 
     private fun logout() {
-        socketClient?.disconnect()
-        socketClient = null
         session.clear()
+        stopService(Intent(this, PrinterService::class.java))
         redirectToLogin()
     }
 
@@ -367,4 +345,16 @@ class OrdersActivity : AppCompatActivity() {
 
     private fun showToast(msg: String) =
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0
+                )
+            }
+        }
+    }
 }
