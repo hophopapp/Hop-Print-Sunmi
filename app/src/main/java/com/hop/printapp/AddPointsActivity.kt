@@ -25,6 +25,7 @@ class AddPointsActivity : AppCompatActivity() {
             binding.userIdText.text = "Customer: …${result.contents.takeLast(6).uppercase()}"
             binding.userIdText.visibility = View.VISIBLE
             binding.successCard.visibility = View.GONE
+            binding.errorText.visibility = View.GONE
             updateSubmitState()
         }
     }
@@ -66,6 +67,8 @@ class AddPointsActivity : AppCompatActivity() {
         })
 
         binding.submitButton.setOnClickListener { submitPoints() }
+
+        binding.newCustomerButton.setOnClickListener { resetForNewCustomer() }
 
         loadCafeName()
     }
@@ -122,12 +125,9 @@ class AddPointsActivity : AppCompatActivity() {
             when (val result = HopApiClient.addPoints(token, userId, points)) {
                 is HopApiClient.ApiResult.Success -> {
                     setLoading(false)
-                    binding.successDetail.text = "$points point${if (points != 1) "s" else ""} added for customer …${userId.takeLast(6).uppercase()}"
+                    binding.successDetail.text = "$points point${if (points != 1) "s" else ""} successfully added for customer …${userId.takeLast(6).uppercase()}"
                     binding.successCard.visibility = View.VISIBLE
-
-                    // Clear userId + points for the next customer
-                    scannedUserId = null
-                    binding.userIdText.visibility = View.GONE
+                    // Only clear the points field; keep customer ID visible for reference
                     binding.pointsEditText.setText("")
                     updateSubmitState()
                 }
@@ -141,6 +141,15 @@ class AddPointsActivity : AppCompatActivity() {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private fun resetForNewCustomer() {
+        scannedUserId = null
+        binding.userIdText.visibility = View.GONE
+        binding.pointsEditText.setText("")
+        binding.successCard.visibility = View.GONE
+        binding.errorText.visibility = View.GONE
+        updateSubmitState()
+    }
 
     private fun updateSubmitState() {
         val points = binding.pointsEditText.text?.toString()?.trim()?.toIntOrNull() ?: 0
