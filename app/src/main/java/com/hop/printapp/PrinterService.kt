@@ -126,7 +126,7 @@ class PrinterService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
             .setContentText("Listening for new orders…")
-            .setSmallIcon(R.drawable.ic_launcher_fallback)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setSilent(true)
