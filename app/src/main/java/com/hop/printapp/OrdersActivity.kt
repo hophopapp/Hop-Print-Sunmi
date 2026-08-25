@@ -25,6 +25,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.hop.printapp.databinding.ActivityOrdersBinding
 import kotlinx.coroutines.launch
 
+private const val IDLE_WARN_MS = 110 * 60 * 1000L   // 1 hr 50 min
+private const val IDLE_TIMEOUT_MS = 120 * 60 * 1000L // 2 hr
+
 class OrdersActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityOrdersBinding
@@ -32,6 +35,49 @@ class OrdersActivity : AppCompatActivity() {
     private lateinit var adapter: OrderAdapter
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // ── Inactivity timer ─────────────────────────────────────────────────────
+
+    private val idleHandler = Handler(Looper.getMainLooper())
+    private var idleWarningDialog: AlertDialog? = null
+
+    private val warnRunnable = Runnable {
+        if (!isFinishing && !isDestroyed) {
+            idleWarningDialog = AlertDialog.Builder(this)
+                .setTitle("Still there?")
+                .setMessage("You've been inactive for a while. You'll be logged out in 10 minutes.")
+                .setPositiveButton("Stay logged in") { _, _ -> resetIdleTimer() }
+                .setCancelable(false)
+                .show()
+        }
+    }
+
+    private val logoutRunnable = Runnable {
+        idleWarningDialog?.dismiss()
+        idleWarningDialog = null
+        if (!isFinishing && !isDestroyed) redirectToLogin(sessionExpired = false)
+    }
+
+    private fun resetIdleTimer() {
+        idleWarningDialog?.dismiss()
+        idleWarningDialog = null
+        idleHandler.removeCallbacks(warnRunnable)
+        idleHandler.removeCallbacks(logoutRunnable)
+        idleHandler.postDelayed(warnRunnable, IDLE_WARN_MS)
+        idleHandler.postDelayed(logoutRunnable, IDLE_TIMEOUT_MS)
+    }
+
+    private fun cancelIdleTimer() {
+        idleHandler.removeCallbacks(warnRunnable)
+        idleHandler.removeCallbacks(logoutRunnable)
+        idleWarningDialog?.dismiss()
+        idleWarningDialog = null
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        resetIdleTimer()
+    }
 
     // null = all statuses; default to pending on launch
     private var currentFilter: String? = "pending"
@@ -105,24 +151,24 @@ class OrdersActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Start the service (no-op if already running) then bind for UI callbacks
         val intent = Intent(this, PrinterService::class.java).apply {
             putExtra(PrinterService.EXTRA_USER_ID, session.userId)
             putExtra(PrinterService.EXTRA_CAFE_ID, session.cafeId)
         }
         ContextCompat.startForegroundService(this, intent)
         bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        resetIdleTimer()
     }
 
     override fun onStop() {
         super.onStop()
-        // Unregister listener and unbind — service keeps running in background
         if (serviceBound) {
             printerService?.listener = null
             unbindService(serviceConnection)
             serviceBound = false
             printerService = null
         }
+        cancelIdleTimer()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -326,19 +372,22 @@ class OrdersActivity : AppCompatActivity() {
                     else -> {}
                 }
             }
-            redirectToLogin()
+            redirectToLogin(sessionExpired = true)
         }
     }
 
     private fun logout() {
+        cancelIdleTimer()
         session.clear()
         stopService(Intent(this, PrinterService::class.java))
         redirectToLogin()
     }
 
-    private fun redirectToLogin() {
+    private fun redirectToLogin(sessionExpired: Boolean = false) {
+        session.clear()
         startActivity(Intent(this, LoginActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            if (sessionExpired) putExtra(LoginActivity.EXTRA_SESSION_EXPIRED, true)
         })
         finish()
     }

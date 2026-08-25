@@ -23,7 +23,7 @@ object HopApiClient {
     sealed class ApiResult<out T> {
         data class Success<T>(val data: T) : ApiResult<T>()
         data class Error(val message: String, val code: Int = 0) : ApiResult<Nothing>() {
-            val isUnauthorized get() = code == 401
+            val isUnauthorized get() = code == 401 || code == 403
         }
     }
 
@@ -195,6 +195,43 @@ object HopApiClient {
                     val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
                     val msg = obj?.get("message")?.asString ?: "Failed to load cafes (${resp.code})"
                     ApiResult.Error(msg, resp.code)
+                }
+            } catch (e: IOException) {
+                ApiResult.Error(e.message ?: "Network error")
+            }
+        }
+
+    // ── Customer lookup ─────────────────────────────────────────────────────
+
+    data class CustomerData(val name: String = "", val email: String = "")
+
+    suspend fun getCustomer(token: String, userId: String): ApiResult<CustomerData> =
+        withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder()
+                    .url("$BASE/users/$userId")
+                    .header("Authorization", "Bearer $token")
+                    .build()
+                val resp = http.newCall(req).execute()
+                val json = resp.body?.string() ?: ""
+                if (resp.isSuccessful) {
+                    val obj = gson.fromJson(json, JsonObject::class.java)
+                    val u = when {
+                        obj.has("user") && obj.get("user").isJsonObject -> obj.getAsJsonObject("user")
+                        obj.has("data") && obj.get("data").isJsonObject -> obj.getAsJsonObject("data")
+                        else -> obj
+                    }
+                    val name = listOf("name", "fullName", "displayName")
+                        .firstNotNullOfOrNull { u.get(it)?.asString?.takeIf { s -> s.isNotBlank() } }
+                        ?: run {
+                            val first = u.get("firstName")?.asString ?: ""
+                            val last = u.get("lastName")?.asString ?: ""
+                            "$first $last".trim().takeIf { it.isNotBlank() }
+                        } ?: ""
+                    val email = u.get("email")?.asString ?: ""
+                    ApiResult.Success(CustomerData(name = name, email = email))
+                } else {
+                    ApiResult.Error("Customer not found", resp.code)
                 }
             } catch (e: IOException) {
                 ApiResult.Error(e.message ?: "Network error")

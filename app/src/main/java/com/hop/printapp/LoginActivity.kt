@@ -11,6 +11,10 @@ import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
 
+    companion object {
+        const val EXTRA_SESSION_EXPIRED = "session_expired"
+    }
+
     private lateinit var binding: ActivityLoginBinding
     private lateinit var session: SessionManager
 
@@ -26,6 +30,11 @@ class LoginActivity : AppCompatActivity() {
 
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        if (intent.getBooleanExtra(EXTRA_SESSION_EXPIRED, false)) {
+            binding.errorText.text = "Session expired, please log in again"
+            binding.errorText.visibility = View.VISIBLE
+        }
 
         binding.passwordEditText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
