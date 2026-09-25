@@ -56,13 +56,34 @@ class PrinterService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val session = SessionManager(this)
+
+        // Guard: if session is gone (logged out), don't run at all
+        if (!session.isLoggedIn) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        // Only connect socket on first start; service restarts via START_STICKY without extras
         if (socketClient == null) {
-            val userId = intent?.getStringExtra(EXTRA_USER_ID) ?: return START_STICKY
-            val cafeId = intent.getStringExtra(EXTRA_CAFE_ID) ?: return START_STICKY
-            connectSocket(userId, cafeId)
+            // Normal start: extras supplied by OrdersActivity
+            val userId = intent?.getStringExtra(EXTRA_USER_ID)
+            val cafeId = intent?.getStringExtra(EXTRA_CAFE_ID)
+
+            if (!userId.isNullOrEmpty() && !cafeId.isNullOrEmpty()) {
+                connectSocket(userId, cafeId)
+            } else {
+                // Sticky restart with no extras — reconnect from session
+                val sid = session.userId
+                val cid = session.cafeId
+                if (!sid.isNullOrEmpty() && !cid.isNullOrEmpty()) {
+                    connectSocket(sid, cid)
+                } else {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+            }
         }
 
         return START_STICKY
@@ -90,20 +111,24 @@ class PrinterService : Service() {
             userId = userId,
             cafeId = cafeId,
             onNewOrder = { order ->
-                // Print even when screen is off — service owns the printer
-                val text = if (order != null && !order.items.isNullOrEmpty()) {
-                    OrderFormatter.format(order)
+                if (!SessionManager(this@PrinterService).isLoggedIn) {
+                    // User has logged out — stop the service and don't print
+                    stopSelf()
                 } else {
-                    OrderFormatter.formatMinimal(
-                        order?.id ?: "",
-                        order?.totalPrice ?: 0.0,
-                        order?.user?.name ?: order?.user?.email
-                    )
+                    val text = if (order != null && !order.items.isNullOrEmpty()) {
+                        OrderFormatter.format(order)
+                    } else {
+                        OrderFormatter.formatMinimal(
+                            order?.id ?: "",
+                            order?.totalPrice ?: 0.0,
+                            order?.user?.name ?: order?.user?.email
+                        )
+                    }
+                    if (printer.isConnected) {
+                        printer.printText(text) { _, _ -> }
+                    }
+                    mainHandler.post { listener?.onNewOrder() }
                 }
-                if (printer.isConnected) {
-                    printer.printText(text) { _, _ -> }
-                }
-                mainHandler.post { listener?.onNewOrder() }
             },
             onOrderUpdated = { orderId, status ->
                 mainHandler.post { listener?.onOrderUpdated(orderId, status) }
