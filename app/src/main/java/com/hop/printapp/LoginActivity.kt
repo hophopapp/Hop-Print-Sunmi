@@ -2,8 +2,11 @@ package com.hop.printapp
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.InputType
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.EditText
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.hop.printapp.databinding.ActivityLoginBinding
@@ -44,6 +47,7 @@ class LoginActivity : AppCompatActivity() {
         }
 
         binding.loginButton.setOnClickListener { doLogin() }
+        binding.forgotPasswordText.setOnClickListener { showForgotPasswordDialog() }
     }
 
     private fun doLogin() {
@@ -76,11 +80,74 @@ class LoginActivity : AppCompatActivity() {
                 }
                 is HopApiClient.ApiResult.Error -> {
                     setLoading(false)
+                    binding.errorText.setTextColor(
+                        androidx.core.content.ContextCompat.getColor(
+                            this@LoginActivity, android.R.color.holo_red_dark
+                        )
+                    )
                     binding.errorText.text = result.message
                     binding.errorText.visibility = View.VISIBLE
                 }
             }
         }
+    }
+
+    private fun showForgotPasswordDialog() {
+        val dp = resources.displayMetrics.density
+        val pad = (24 * dp).toInt()
+
+        val emailInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            hint = "Email address"
+            setSingleLine()
+            setPadding(pad, (12 * dp).toInt(), pad, 0)
+            // Pre-fill if the identifier field looks like an email
+            val current = binding.identifierEditText.text?.toString()?.trim() ?: ""
+            if (current.contains("@")) setText(current)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Reset Password")
+            .setMessage("Enter your email and we'll send you a reset link.")
+            .setView(emailInput)
+            .setPositiveButton("Send Reset Link", null) // set below to prevent auto-dismiss on error
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val email = emailInput.text?.toString()?.trim() ?: ""
+                if (email.isEmpty() || !email.contains("@")) {
+                    emailInput.error = "Enter a valid email"
+                    return@setOnClickListener
+                }
+                emailInput.error = null
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "Sending…"
+
+                lifecycleScope.launch {
+                    when (val result = HopApiClient.forgotPassword(email)) {
+                        is HopApiClient.ApiResult.Success -> {
+                            dialog.dismiss()
+                            binding.errorText.setTextColor(
+                                androidx.core.content.ContextCompat.getColor(
+                                    this@LoginActivity, R.color.primary
+                                )
+                            )
+                            binding.errorText.text = "✓  Reset link sent — check your email"
+                            binding.errorText.visibility = View.VISIBLE
+                        }
+                        is HopApiClient.ApiResult.Error -> {
+                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "Send Reset Link"
+                            emailInput.error = result.message
+                        }
+                    }
+                }
+            }
+        }
+
+        dialog.show()
     }
 
     private fun setLoading(loading: Boolean) {

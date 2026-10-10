@@ -80,6 +80,28 @@ object HopApiClient {
             }
         }
 
+    suspend fun forgotPassword(email: String): ApiResult<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val body = gson.toJson(mapOf("email" to email))
+                val req = Request.Builder()
+                    .url("$BASE/auth/forgot-password")
+                    .post(body.toRequestBody(JSON_MEDIA))
+                    .build()
+                val resp = http.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    ApiResult.Success(Unit)
+                } else {
+                    val json = resp.body?.string() ?: ""
+                    val obj = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
+                    val msg = obj?.get("message")?.asString ?: "Request failed (${resp.code})"
+                    ApiResult.Error(msg, resp.code)
+                }
+            } catch (e: IOException) {
+                ApiResult.Error(e.message ?: "Network error")
+            }
+        }
+
     suspend fun refreshToken(refreshToken: String): ApiResult<LoginData> =
         withContext(Dispatchers.IO) {
             try {
