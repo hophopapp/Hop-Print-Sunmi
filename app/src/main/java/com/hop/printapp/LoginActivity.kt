@@ -2,11 +2,12 @@ package com.hop.printapp
 
 import android.content.Intent
 import android.os.Bundle
-import android.text.InputType
+import android.view.LayoutInflater
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.hop.printapp.databinding.ActivityLoginBinding
@@ -93,24 +94,19 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun showForgotPasswordDialog() {
-        val dp = resources.displayMetrics.density
-        val pad = (24 * dp).toInt()
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_forgot_password, null)
+        val emailLayout = dialogView.findViewById<TextInputLayout>(R.id.emailLayout)
+        val emailInput = dialogView.findViewById<TextInputEditText>(R.id.emailInput)
 
-        val emailInput = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-            hint = "Email address"
-            setSingleLine()
-            setPadding(pad, (12 * dp).toInt(), pad, 0)
-            // Pre-fill if the identifier field looks like an email
-            val current = binding.identifierEditText.text?.toString()?.trim() ?: ""
-            if (current.contains("@")) setText(current)
-        }
+        // Pre-fill if the identifier field already looks like an email
+        val current = binding.identifierEditText.text?.toString()?.trim() ?: ""
+        if (current.contains("@")) emailInput.setText(current)
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("Reset Password")
             .setMessage("Enter your email and we'll send you a reset link.")
-            .setView(emailInput)
-            .setPositiveButton("Send Reset Link", null) // set below to prevent auto-dismiss on error
+            .setView(dialogView)
+            .setPositiveButton("Send Reset Link", null)
             .setNegativeButton("Cancel", null)
             .create()
 
@@ -118,12 +114,12 @@ class LoginActivity : AppCompatActivity() {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val email = emailInput.text?.toString()?.trim() ?: ""
                 if (email.isEmpty() || !email.contains("@")) {
-                    emailInput.error = "Enter a valid email"
+                    emailLayout.error = "Enter a valid email"
                     return@setOnClickListener
                 }
-                emailInput.error = null
+                emailLayout.error = null
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "Sending…"
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "Sending..."
 
                 lifecycleScope.launch {
                     when (val result = HopApiClient.forgotPassword(email)) {
@@ -134,13 +130,13 @@ class LoginActivity : AppCompatActivity() {
                                     this@LoginActivity, R.color.primary
                                 )
                             )
-                            binding.errorText.text = "✓  Reset link sent — check your email"
+                            binding.errorText.text = "Reset link sent - check your email"
                             binding.errorText.visibility = View.VISIBLE
                         }
                         is HopApiClient.ApiResult.Error -> {
                             dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                             dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "Send Reset Link"
-                            emailInput.error = result.message
+                            emailLayout.error = result.message
                         }
                     }
                 }
